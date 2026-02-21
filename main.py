@@ -7,17 +7,24 @@ import os
 
 app = FastAPI()
 
-# ✅ Correct CORS configuration (Exam Portal Compatible)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],          # MUST be wildcard
-    allow_credentials=False,      # MUST be False for "*"
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+@app.middleware("http")
+async def add_cors_headers(request, call_next):
+    response = await call_next(request)
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Private-Network"] = "true"
+    return response
+
+
+# ✅ FIXED CONSTANTS
 VALID_TOKEN = "ean3tho9pdx7wnht"
-MAX_SIZE = 83 * 1024  # 83 KB
+MAX_SIZE = 83 * 1024  # 83KB
 ALLOWED_EXTENSIONS = {".csv", ".json", ".txt"}
 
 
@@ -26,57 +33,46 @@ async def upload_file(
     file: UploadFile = File(...),
     x_upload_token_9704: str = Header(None, alias="X-Upload-Token-9704"),
 ):
-    # 1️⃣ Authentication check
+    # 1. Auth check
     if not x_upload_token_9704 or x_upload_token_9704 != VALID_TOKEN:
-        raise HTTPException(status_code=401, detail="Unauthorized")
+        raise HTTPException(status_code=401)
 
-    # 2️⃣ File extension check
+    # 2. File type check
     filename = file.filename or ""
     ext = os.path.splitext(filename)[1].lower()
     if ext not in ALLOWED_EXTENSIONS:
-        raise HTTPException(status_code=400, detail="Bad Request")
+        raise HTTPException(status_code=400)
 
-    # 3️⃣ Read up to MAX_SIZE + 1 bytes (so FastAPI controls 413)
-    contents = await file.read(MAX_SIZE + 1)
-
+    # 3. Read and check file size
+    contents = await file.read()
     if len(contents) > MAX_SIZE:
-        raise HTTPException(status_code=413, detail="Payload Too Large")
+        raise HTTPException(status_code=413)
 
-    # 4️⃣ CSV Processing
+    # 4. Parse CSV and compute statistics
     if ext == ".csv":
-        try:
-            text = contents.decode("utf-8")
-            reader = csv.DictReader(io.StringIO(text))
-            rows = list(reader)
+        text = contents.decode("utf-8")
+        reader = csv.DictReader(io.StringIO(text))
+        rows = list(reader)
+        columns = list(rows[0].keys()) if rows else []
 
-            if not rows:
-                raise HTTPException(status_code=400, detail="Invalid CSV format")
+        total_value = 0.0
+        category_counts = {}
+        for row in rows:
+            total_value += float(row["value"])
+            cat = row["category"]
+            category_counts[cat] = category_counts.get(cat, 0) + 1
 
-            columns = list(rows[0].keys())
+        total_value = round(total_value, 2)
 
-            total_value = 0.0
-            category_counts = {}
+        return JSONResponse(content={
+            "email": "23f2001645@ds.study.iitm.ac.in",
+            "filename": filename,
+            "rows": len(rows),
+            "columns": columns,
+            "totalValue": total_value,
+            "categoryCounts": category_counts,
+        })
 
-            for row in rows:
-                total_value += float(row["value"])
-                cat = row["category"]
-                category_counts[cat] = category_counts.get(cat, 0) + 1
-
-            total_value = round(total_value, 2)
-
-            return JSONResponse(content={
-                "email": "23f2001645@ds.study.iitm.ac.in",
-                "filename": filename,
-                "rows": len(rows),
-                "columns": columns,
-                "totalValue": total_value,
-                "categoryCounts": category_counts,
-            })
-
-        except Exception:
-            raise HTTPException(status_code=400, detail="Invalid CSV format")
-
-    # 5️⃣ Non-CSV files
     return JSONResponse(content={
         "email": "23f2001645@ds.study.iitm.ac.in",
         "filename": filename,
@@ -84,7 +80,6 @@ async def upload_file(
     })
 
 
-# ✅ Required for Render
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=5055)
