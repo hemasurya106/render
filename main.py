@@ -7,10 +7,11 @@ import os
 
 app = FastAPI()
 
-# ✅ Enable CORS properly
+# ✅ Correct CORS configuration (Exam Portal Compatible)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],          # MUST be wildcard
+    allow_credentials=False,      # MUST be False for "*"
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -25,7 +26,7 @@ async def upload_file(
     file: UploadFile = File(...),
     x_upload_token_9704: str = Header(None, alias="X-Upload-Token-9704"),
 ):
-    # 1️⃣ Auth check
+    # 1️⃣ Authentication check
     if not x_upload_token_9704 or x_upload_token_9704 != VALID_TOKEN:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
@@ -35,7 +36,7 @@ async def upload_file(
     if ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(status_code=400, detail="Bad Request")
 
-    # 3️⃣ Read ONLY up to MAX_SIZE + 1 bytes
+    # 3️⃣ Read up to MAX_SIZE + 1 bytes (so FastAPI controls 413)
     contents = await file.read(MAX_SIZE + 1)
 
     if len(contents) > MAX_SIZE:
@@ -47,7 +48,11 @@ async def upload_file(
             text = contents.decode("utf-8")
             reader = csv.DictReader(io.StringIO(text))
             rows = list(reader)
-            columns = list(rows[0].keys()) if rows else []
+
+            if not rows:
+                raise HTTPException(status_code=400, detail="Invalid CSV format")
+
+            columns = list(rows[0].keys())
 
             total_value = 0.0
             category_counts = {}
@@ -67,6 +72,7 @@ async def upload_file(
                 "totalValue": total_value,
                 "categoryCounts": category_counts,
             })
+
         except Exception:
             raise HTTPException(status_code=400, detail="Invalid CSV format")
 
@@ -78,11 +84,7 @@ async def upload_file(
     })
 
 
+# ✅ Required for Render
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(
-        "main:app",
-        host="0.0.0.0",
-        port=5055,
-        reload=True
-    )
+    uvicorn.run("main:app", host="0.0.0.0", port=8000)
